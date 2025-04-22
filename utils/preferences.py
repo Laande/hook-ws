@@ -44,3 +44,10 @@ class PreferencesManager:
     
     def apply_preferences(self, root):
         root.attributes('-topmost', self.always_on_top_var.get())
+    
+    def get_preference(self, key, default=None):
+        return self.preferences.get(key, default)
+    
+    def set_preference(self, key, value):
+        self.preferences[key] = value
+        self.save_preferences()

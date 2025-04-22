@@ -81,6 +81,104 @@ class ConnectionManager:
         else:
             self.root.after(1000, lambda: self.attempt_connection(attempt + 1))
     
+    def mitmdump_check(self, startupinfo):
+        mitmdump_path = "mitmdump"
+        try:
+            subprocess.run(["mitmdump", "--version"], 
+                            stdout=subprocess.PIPE, 
+                            stderr=subprocess.PIPE, 
+                            startupinfo=startupinfo,
+                            check=True)
+            return mitmdump_path
+        except (subprocess.SubprocessError, FileNotFoundError):
+            python_versions = ["Python312", "Python311", "Python310", "Python39", "Python38", "Python37"]
+            try:
+                result = subprocess.run(["python", "--version"], 
+                                        stdout=subprocess.PIPE, 
+                                        stderr=subprocess.PIPE, 
+                                        text=True,
+                                        check=True)
+                version_output = result.stdout.strip()
+                if version_output.startswith("Python "):
+                    version_parts = version_output.split(" ")[1].split(".")
+                    if len(version_parts) >= 2:
+                        detected_version = f"Python{version_parts[0]}{version_parts[1]}"
+                        self.message_display.add_message("SYSTEM", f"Detected Python version: {detected_version}")
+                        
+                        python_versions = [detected_version]
+            except Exception:
+                pass
+            
+            possible_paths = []
+            
+            for version in python_versions:
+                possible_paths.extend([
+                    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Python", version, "Scripts", "mitmdump.exe"),
+                    os.path.join(os.environ.get("APPDATA", ""), "Python", version, "Scripts", "mitmdump.exe"),
+                    os.path.join(os.environ.get("PROGRAMFILES", ""), version, "Scripts", "mitmdump.exe"),
+                    os.path.join(os.environ.get("PROGRAMFILES(X86)", ""), version, "Scripts", "mitmdump.exe")
+                ])
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    self.message_display.add_message("SYSTEM", f"Found mitmdump at: {path}")
+                    return path
+            else:
+                self.message_display.add_message("ERROR", "mitmdump not found, install it with 'pip install mitmproxy'")
+                return
+    
+    def install_certificate(self, mitmdump_path):
+        try:
+            self.message_display.add_message("SYSTEM", "Installing mitmproxy certificate...")
+            
+            cert_path = os.path.join(os.environ.get("USERPROFILE", ""), ".mitmproxy", "mitmproxy-ca-cert.cer")
+            
+            if not os.path.exists(cert_path):
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 6
+                
+                temp_process = subprocess.Popen(
+                    [mitmdump_path, "--no-http2"],
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                    startupinfo=startupinfo
+                )
+                self.root.after(2000, lambda: temp_process.terminate())
+            
+            if os.path.exists(cert_path):
+                try:
+                    batch_path = os.path.join(self.script_dir, "install_cert.bat")
+                    with open(batch_path, "w") as f:
+                        f.write(f'@echo off\n')
+                        f.write(f'echo Installing mitmproxy certificate...\n')
+                        f.write(f'certutil -addstore -f "ROOT" "{cert_path}"\n')
+                        f.write(f'if %ERRORLEVEL% EQU 0 (\n')
+                        f.write(f'  echo Certificate installed successfully\n')
+                        f.write(f') else (\n')
+                        f.write(f'  echo Failed to install certificate\n')
+                        f.write(f')\n')
+                    
+                    self.message_display.add_message("SYSTEM", "Please accept the UAC prompt to install the certificate")
+                    os.startfile(batch_path, "runas")
+                    
+                    return True
+                except Exception as e:
+                    self.message_display.add_message("ERROR", f"Failed to run with admin rights: {e}")
+                    try:
+                        os.startfile(cert_path)
+                        self.message_display.add_message("SYSTEM", "Please manually install the certificate to the Trusted Root store")
+                        return True
+                    except Exception as e2:
+                        self.message_display.add_message("ERROR", f"Failed to open certificate: {e2}")
+                        return False
+            else:
+                self.message_display.add_message("ERROR", "Certificate file not found")
+                return False
+                
+        except Exception as e:
+            self.message_display.add_message("ERROR", f"Failed to install certificate: {e}")
+            return False
+    
     def start_proxy(self):
         try:
             interceptor_path = os.path.join(self.script_dir, "interceptor", "websocket_interceptor.py")
@@ -89,8 +187,19 @@ class ConnectionManager:
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = 6
             
+            mitmdump_path = self.mitmdump_check(startupinfo)
+            if not mitmdump_path:
+                return
+            
+            if not self.preferences_manager.get_preference("certificate_installed", False):
+                cert = self.install_certificate(mitmdump_path)
+                if cert:
+                    self.preferences_manager.set_preference("certificate_installed", True)
+                else:
+                    return
+            
             self.proxy_process = subprocess.Popen(
-                ["mitmdump", "-s", interceptor_path],
+                [mitmdump_path, "-s", interceptor_path],
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
                 startupinfo=startupinfo
             )

@@ -1,6 +1,7 @@
 __pycache__
 
 preferences.json
+install_cert.bat
 
 # Testing purposes
 old/
