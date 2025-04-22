@@ -32,3 +32,6 @@ To configure FoxyProxy for WebSocket interception:
 3. Set the proxy type to "HTTP"
 4. Enter `127.0.0.1` as the proxy IP and port to `8080`
 6. Save the configuration and enable it for the desired URLs or patterns (e.g., `*.example.com`)
+
+## Preview
+![WebSocket Interceptor Preview](preview.png)
