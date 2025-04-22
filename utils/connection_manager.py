@@ -81,13 +81,12 @@ class ConnectionManager:
         else:
             self.root.after(1000, lambda: self.attempt_connection(attempt + 1))
     
-    def mitmdump_check(self, startupinfo):
+    def mitmdump_check(self):
         mitmdump_path = "mitmdump"
         try:
             subprocess.run(["mitmdump", "--version"], 
-                            stdout=subprocess.PIPE, 
-                            stderr=subprocess.PIPE, 
-                            startupinfo=startupinfo,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
                             check=True)
             return mitmdump_path
         except (subprocess.SubprocessError, FileNotFoundError):
@@ -134,14 +133,8 @@ class ConnectionManager:
             cert_path = os.path.join(os.environ.get("USERPROFILE", ""), ".mitmproxy", "mitmproxy-ca-cert.cer")
             
             if not os.path.exists(cert_path):
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = 6
-                
                 temp_process = subprocess.Popen(
-                    [mitmdump_path, "--no-http2"],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE,
-                    startupinfo=startupinfo
+                    [mitmdump_path, "--no-http2"]
                 )
                 self.root.after(2000, lambda: temp_process.terminate())
             
@@ -182,12 +175,8 @@ class ConnectionManager:
     def start_proxy(self):
         try:
             interceptor_path = os.path.join(self.script_dir, "interceptor", "websocket_interceptor.py")
-            
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 6
-            
-            mitmdump_path = self.mitmdump_check(startupinfo)
+                        
+            mitmdump_path = self.mitmdump_check()
             if not mitmdump_path:
                 return
             
@@ -200,8 +189,6 @@ class ConnectionManager:
             
             self.proxy_process = subprocess.Popen(
                 [mitmdump_path, "-s", interceptor_path],
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-                startupinfo=startupinfo
             )
             self.message_display.add_message("SYSTEM", "Proxy started on port 8080")
             threading.Thread(target=lambda: self.attempt_connection(1), daemon=True).start()
