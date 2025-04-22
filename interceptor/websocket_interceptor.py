@@ -7,6 +7,7 @@ import time
 class WebSocketInterceptor:
     def __init__(self):
         self.active_flow = None
+        self.injected_messages = set()
         
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -54,6 +55,9 @@ class WebSocketInterceptor:
                         try:
                             print(f"Injecting message: {content}")
                             try:
+                                message_id = f"{direction}|{content}"
+                                self.injected_messages.add(message_id)
+                                
                                 ctx.master.commands.call(
                                     "inject.websocket", 
                                     self.active_flow, 
@@ -61,7 +65,9 @@ class WebSocketInterceptor:
                                     content.encode('utf-8')
                                 )
                                 print("Direct injection successful")
+                                self.send_to_ui(f"{direction} (injected)|{content}")
                             except Exception as e:
+                                self.injected_messages.discard(message_id)
                                 print(f"Direct injection error: {str(e)}")
                                 self.send_to_ui(f"ERROR|Injection failed: {str(e)}")
                         except Exception as e:
@@ -110,6 +116,11 @@ class WebSocketInterceptor:
             payload_str = payload.decode('utf-8', errors='ignore')
         else:
             payload_str = str(payload)
+        
+        message_id = f"{direction}|{payload_str}"
+        if message_id in self.injected_messages:
+            self.injected_messages.discard(message_id)
+            return
         
         self.send_to_ui(f"{direction}|{payload_str}")
 
